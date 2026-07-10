@@ -1,48 +1,53 @@
 # rendy-archlinux-vm-clipboard-tool
 
-VMware Arch Linux (Wayland) ↔ Windows 剪貼簿同步。
+[繁體中文](README.zh-TW.md)
 
-open-vm-tools 的剪貼簿在 GNOME Wayland（Mutter 無 data-control protocol）下不可用。
-本工具改走 VMware backdoor 通道直接跟 hypervisor 交換剪貼簿 —— **Windows 端完全
-不用裝任何東西**（VMware 自己處理 host 剪貼簿那半）。
+Clipboard sync between a VMware Arch Linux (Wayland) guest and its Windows host.
+
+open-vm-tools' clipboard does not work under GNOME Wayland (Mutter has no
+data-control protocol). This tool talks the VMware backdoor channel directly to
+exchange the clipboard with the hypervisor — so **nothing needs to be installed
+on Windows** (VMware handles the host clipboard half itself).
 
 ```
 Arch guest (GNOME Wayland)                    Windows host
 ┌──────────────────────────┐                 ┌──────────────────┐
-│ main.py (python-xlib)     │  stdin/stdout   │ VMware 自己處理   │
-│   ↕                       │  hex lines      │ host clipboard   │
-│ backdoor_helper (Rust)    │ ──backdoor────► │ (免安裝)         │
+│ main.py (python-xlib)     │  stdin/stdout   │ handled by VMware │
+│   ↕                       │  hex lines      │ host clipboard    │
+│ backdoor_helper (Rust)    │ ──backdoor────► │ (nothing to set up)│
 └──────────────────────────┘   VMXh 0x5658    └──────────────────┘
 ```
 
-- **guest 端**：走 XWayland 的 X11 CLIPBOARD selection（Mutter 自動橋接
-  X11 ↔ Wayland，Wayland 原生 app 如 Firefox 也涵蓋）。
-- **transport**：Rust helper 講 VMware low-bandwidth backdoor 剪貼簿協議
-  （`GETSELLENGTH`/`GETNEXTPIECE`/`SETSEL*`），輪詢 host 剪貼簿，經 stdin/stdout
-  hex line 橋接到 Python。
-- **權限**：backdoor 需 `iopl(3)` → helper 帶檔案能力 `CAP_SYS_RAWIO`
-  （`build.sh` 自動 setcap），一般 user 即可，**不用 root**。
-- **範圍**：純文字（UTF-8）。圖片、檔案、富文字不支援。
+- **Guest side**: uses the X11 CLIPBOARD selection under XWayland (Mutter bridges
+  X11 ↔ Wayland automatically, so Wayland-native apps like Firefox are covered).
+- **Transport**: a Rust helper speaks the VMware low-bandwidth backdoor clipboard
+  protocol (`GETSELLENGTH` / `GETNEXTPIECE` / `SETSEL*`), polls the host
+  clipboard, and bridges to Python over stdin/stdout hex lines.
+- **Privilege**: the backdoor needs `iopl(3)`, so the helper carries the
+  `CAP_SYS_RAWIO` file capability (`build.sh` sets it automatically). A normal
+  user is enough — **no root**.
+- **Scope**: plain text (UTF-8). Images, files, and rich text are not supported.
 
-## 安裝
+## Install
 
-VM（Arch guest）內：
+On the VM (Arch guest):
 
 ```bash
 sudo pacman -S --needed python-xlib gcc rust
-# 把整個 tool/ 放到 ~/clipsync-tool/
+# put the whole tool/ directory at ~/clipsync-tool/
 cd ~/clipsync-tool
-bash build.sh         # 編譯 backdoor_helper 並 setcap cap_sys_rawio+ep
-python main.py        # 首次執行產生 config.json
+bash build.sh         # builds backdoor_helper and setcap cap_sys_rawio+ep
+python main.py        # first run creates config.json
 ```
 
-`config.json` 欄位：`poll_ms`(輪詢間隔，預設 400)、`max_text_bytes`、
-`log_level`、`helper_bin`(預設 `backdoor_helper`)。通常不用改。
+`config.json` fields: `poll_ms` (poll interval, default 400), `max_text_bytes`,
+`log_level`, `helper_bin` (default `backdoor_helper`). Usually no need to change.
 
-vmtoolsd 可以繼續開著（實測與本工具並存不衝突 —— vmtoolsd 的剪貼簿在 Wayland
-下本來就不作用，不會真的消費 backdoor 通道；共享資料夾 / time sync 照常）。
+vmtoolsd may stay running — verified to coexist with this tool (its clipboard is
+inert under Wayland, so it does not actually consume the backdoor channel;
+shared folders / time sync keep working).
 
-## 常駐（systemd user unit）
+## Autostart (systemd user unit)
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -51,36 +56,43 @@ systemctl --user daemon-reload
 systemctl --user enable --now clipsync-tool.service
 ```
 
-注意：`build.sh` 重編後 capability 會消失，須重跑（會自動 setcap）。
+Note: the capability is lost whenever the binary is rebuilt, so re-run
+`bash build.sh` after any Rust change (it re-applies setcap).
 
-## 驗證
+## Verify
 
-1. daemon 啟動，log 出現 `X11 clipboard watcher ready` 與 `helper: ready`。
-2. VM 內任意 app（含 Wayland 原生 Firefox）複製文字 → Windows `Ctrl+V`。
-3. Windows 複製 → VM 貼上。
-4. 來回多次不應出現內容跳動（echo loop）。
+1. The daemon starts; the log shows `X11 clipboard watcher ready` and
+   `helper: ready`.
+2. Copy text in any VM app (including Wayland-native Firefox) → paste on Windows.
+3. Copy on Windows → paste in the VM.
+4. Repeated round-trips must not show content flapping (echo loop).
 
-## 除錯
+## Troubleshooting
 
-Log 在 `logs/`，讀取順序：
+Logs live in `logs/`, read in this order:
 
-1. `clipsync-tool_YYYYMMDD.err.log` — 只有 WARNING 以上
-2. `clipsync-tool_YYYYMMDD.task.jsonl` — 每次傳輸一行（方向、狀態、耗時）
-3. 用 task_id grep 詳細 log；`log_level` 設 `DEBUG` 看 X11 事件細節
+1. `clipsync-tool_YYYYMMDD.err.log` — WARNING and above only
+2. `clipsync-tool_YYYYMMDD.task.jsonl` — one line per transfer (direction,
+   status, duration)
+3. grep the detail log by task_id; set `log_level` to `DEBUG` for X11 event
+   detail
 
-常見問題：
+Common issues:
 
-- guest→host 沒反應：`DEBUG` 下看有沒有 `guest->host N chars`。GNOME 50.3 的
-  Mutter 不送 XFIXES owner-notify，偵測改靠 SelectionClear + 600ms owner 輪詢。
-- helper 起不來 / `need CAP_SYS_RAWIO`：重跑 `bash build.sh`（重編會掉 cap）。
-- 貼上是舊內容：看 err.log 有沒有 `selection fetch timed out`。
+- guest→host does nothing: check for `guest->host N chars` under `DEBUG`.
+  GNOME 50.3 Mutter does not deliver the XFIXES owner-notify, so detection falls
+  back to SelectionClear + a 600ms owner poll.
+- helper won't start / `need CAP_SYS_RAWIO`: re-run `bash build.sh` (a rebuild
+  drops the capability).
+- paste yields stale content: check err.log for `selection fetch timed out`.
 
-## 開發
+## Development
 
-- `src/clipboard_x11.py`、`config_loader.py`、`logger_setup.py` 是 Python 端；
-  `rustsrc/`（`backdoor.s` + `main.rs`）是 Rust helper。
-- backdoor 呼叫用獨立 `.s`（proven 7-register 慣例，出處 lucab/vmw_backdoor）。
-- `tmp_tests/`：backdoor probe（`backdoor_probe.rs` + `run_probe.sh`）。未來
-  VMware 升級後若 v2 壞了，`bash tmp_tests/run_probe.sh` 能一秒分辨是 backdoor
-  通道本身變了、還是 daemon 邏輯問題。probe 直接組譯 `tool/rustsrc/backdoor.s`
-  （單一來源，不另存副本）。
+- Python side: `src/clipboard_x11.py`, `config_loader.py`, `logger_setup.py`.
+  Rust helper: `rustsrc/` (`backdoor.s` + `main.rs`).
+- The backdoor call uses a standalone `.s` (the proven 7-register convention
+  from lucab/vmw_backdoor).
+- `tmp_tests/`: the backdoor probe (`backdoor_probe.rs` + `run_probe.sh`). If a
+  future VMware upgrade breaks v2, `bash tmp_tests/run_probe.sh` tells in one
+  shot whether the backdoor channel itself changed or the daemon logic did. The
+  probe assembles `tool/rustsrc/backdoor.s` directly (single source, no copy).
