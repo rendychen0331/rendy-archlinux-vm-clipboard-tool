@@ -4,14 +4,21 @@ Runs against the XWayland server inside a GNOME Wayland session; Mutter
 bridges the X11 CLIPBOARD selection to/from native Wayland apps in both
 directions, so owning/reading the X selection covers the whole desktop.
 
-- Watch: XFixesSelectSelectionInput fires on every CLIPBOARD owner change;
-  we then ConvertSelection(UTF8_STRING) and read the property (INCR-aware).
-- Own: on set_text() we take selection ownership and answer
-  SelectionRequest events (TARGETS / UTF8_STRING / text/plain / STRING).
+Detecting a guest copy is done three ways, cheapest first, all converging
+through one content-hash dedup so duplicates are harmless:
+  - XFIXES owner-notify (instant, when the compositor delivers it);
+  - core SelectionClear (instant, fires when we lose ownership -- GNOME 50.3
+    Mutter delivers this but NOT the XFIXES notify);
+  - a periodic owner poll (fallback that also catches same-app re-copies,
+    which change no owner and emit no event).
+We deliberately do NOT re-take ownership after reading a guest copy: under
+Mutter that starts an ownership ping-pong. Ownership is taken only to serve
+host->guest content via set_text().
 
 Single-threaded event loop over select(); set_text() may be called from
 any thread (wakes the loop via a socketpair).
 """
+import hashlib
 import logging
 import select
 import socket
@@ -23,7 +30,12 @@ from Xlib.ext import xfixes
 from Xlib.protocol import event as xevent
 
 FETCH_TIMEOUT = 2.0
+POLL_INTERVAL = 0.6       # owner-poll fallback period (seconds)
 PROP_WRITE_CHUNK = 60000  # stay under the X11 max request size
+
+
+def _hash(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 class X11Clipboard:
@@ -35,6 +47,8 @@ class X11Clipboard:
         self._lock = threading.Lock()
         self._wake_r, self._wake_w = socket.socketpair()
         self._fetch = None      # in-progress selection fetch state
+        self._last_hash = None  # hash of current clipboard content (dedup)
+        self._next_poll = 0.0
 
         self._disp = display.Display()
         screen = self._disp.screen()
@@ -68,10 +82,11 @@ class X11Clipboard:
     def run_forever(self) -> None:
         x_fd = self._disp.fileno()
         while True:
-            timeout = None
+            timeout = POLL_INTERVAL
             if self._fetch is not None:
-                timeout = max(0.0,
-                              self._fetch["deadline"] - time.monotonic())
+                timeout = min(timeout,
+                              max(0.0, self._fetch["deadline"]
+                                  - time.monotonic()))
             r, _, _ = select.select([x_fd, self._wake_r], [], [], timeout)
             if self._wake_r in r:
                 self._wake_r.recv(64)
@@ -83,8 +98,11 @@ class X11Clipboard:
                     and time.monotonic() >= self._fetch["deadline"]):
                 logging.warning("selection fetch timed out")
                 self._fetch = None
+            if time.monotonic() >= self._next_poll:
+                self._next_poll = time.monotonic() + POLL_INTERVAL
+                self._poll_owner()
 
-    # ---- owning the selection ----
+    # ---- owning the selection (host -> guest) ----
 
     def _apply_pending(self):
         with self._lock:
@@ -92,15 +110,16 @@ class X11Clipboard:
                 return
             text = self._pending[-1]  # only the newest matters
             self._pending.clear()
-        self._own_data = text.encode("utf-8")
+        data = text.encode("utf-8")
+        self._own_data = data
+        self._last_hash = _hash(data)  # so we never echo it back to the host
         self._win.set_selection_owner(self.A_CLIPBOARD, X.CurrentTime)
         self._disp.flush()
         owner = self._disp.get_selection_owner(self.A_CLIPBOARD)
         if getattr(owner, "id", owner) != self._win.id:
             logging.warning("failed to take CLIPBOARD ownership")
         else:
-            logging.info("owning CLIPBOARD with %d bytes",
-                         len(self._own_data))
+            logging.info("owning CLIPBOARD with %d bytes", len(data))
 
     def _serve_request(self, ev):
         prop = ev.property if ev.property else ev.target
@@ -131,20 +150,30 @@ class X11Clipboard:
                                 data[i:i + PROP_WRITE_CHUNK],
                                 X.PropModeAppend)
 
-    # ---- watching / fetching foreign selections ----
+    # ---- watching / fetching foreign selections (guest -> host) ----
+
+    def _poll_owner(self):
+        """Fallback trigger: if someone else owns CLIPBOARD, fetch it.
+        Content dedup in _finish_fetch makes a redundant fetch a no-op."""
+        if self._fetch is not None:
+            return
+        owner = self._disp.get_selection_owner(self.A_CLIPBOARD)
+        oid = getattr(owner, "id", owner)
+        if not oid or oid == self._win.id:
+            return
+        self._start_fetch()
 
     def _handle_event(self, ev):
-        logging.debug("x event: %s", type(ev).__name__)
         if isinstance(ev, xfixes.SetSelectionOwnerNotify):
             owner_id = getattr(ev.owner, "id", ev.owner)
-            logging.debug("xfixes owner-notify: selection=%s owner=0x%x "
-                          "(self=0x%x)", ev.selection, owner_id or 0,
-                          self._win.id)
+            logging.debug("xfixes owner-notify: owner=0x%x (self=0x%x)",
+                          owner_id or 0, self._win.id)
             if ev.selection != self.A_CLIPBOARD:
                 return
             if not owner_id or owner_id == self._win.id:
                 return  # cleared, or our own set_text
-            self._start_fetch()
+            if self._fetch is None:
+                self._start_fetch()
         elif ev.type == X.SelectionNotify:
             self._on_selection_notify(ev)
         elif ev.type == X.PropertyNotify:
@@ -152,8 +181,10 @@ class X11Clipboard:
         elif ev.type == X.SelectionRequest:
             self._serve_request(ev)
         elif ev.type == X.SelectionClear:
-            logging.info("lost CLIPBOARD ownership to another client")
+            logging.info("lost CLIPBOARD ownership -> fetching new content")
             self._own_data = None
+            if self._fetch is None:
+                self._start_fetch()
 
     def _start_fetch(self, target=None):
         target = target or self.A_UTF8
@@ -209,12 +240,17 @@ class X11Clipboard:
 
     def _finish_fetch(self, data: bytes):
         self._fetch = None
-        logging.debug("fetch finished: %d bytes", len(data))
         if not data:
             return
         if len(data) > self._max:
             logging.warning("clipboard text exceeds max_text_bytes, skipped")
             return
+        h = _hash(data)
+        if h == self._last_hash:
+            logging.debug("fetched content unchanged, not re-sent")
+            return
+        self._last_hash = h
+        logging.debug("fetch finished: %d new bytes", len(data))
         text = data.decode("utf-8", errors="replace")
         try:
             self._on_text(text)
