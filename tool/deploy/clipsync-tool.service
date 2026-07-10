@@ -8,8 +8,8 @@
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now clipsync-tool.service
 #
-# vmtoolsd polls the same backdoor channel -- stop it or the two contend:
-#   systemctl --user stop vmtoolsd   (and/or the system vmtoolsd)
+# vmtoolsd may stay running: verified to coexist with v2 (its clipboard is
+# inert under Wayland, so it does not actually consume the backdoor channel).
 
 [Unit]
 Description=ClipSync backdoor clipboard daemon

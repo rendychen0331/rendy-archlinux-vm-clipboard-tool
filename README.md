@@ -32,12 +32,8 @@ python main.py        # 首次執行產生 config.json
 `config.json` 欄位：`poll_ms`(輪詢間隔)、`max_text_bytes`、`log_level`、
 `helper_bin`(預設 `backdoor_helper`)。通常不用改。
 
-**停掉 vmtoolsd 的剪貼簿**（它輪詢同一條 backdoor 通道，會跟 v2 搶）：
-
-```bash
-systemctl --user stop vmtoolsd      # 視發行版
-sudo systemctl stop vmtoolsd
-```
+vmtoolsd 可以繼續開著（實測與 v2 並存不衝突 —— vmtoolsd 的剪貼簿在 Wayland
+下本來就不作用，不會真的消費 backdoor 通道；共享資料夾 / time sync 照常）。
 
 常駐（systemd user unit）：
 
