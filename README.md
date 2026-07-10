@@ -30,34 +30,60 @@ Arch guest (GNOME Wayland)                    Windows host
 
 ## Install
 
-On the VM (Arch guest):
+All on the VM (Arch guest). Pick one method. `x86_64` only (the backdoor asm).
+
+### A. Prebuilt package from Releases (easiest)
+
+Grab the `.pkg.tar.zst` from the [latest Release](../../releases) and:
+
+```bash
+sudo pacman -U rendy-vm-clipboard-git-*.pkg.tar.zst
+```
+
+pacman installs the helper (with `CAP_SYS_RAWIO` set), the systemd user unit,
+and pulls the runtime deps. `pacman -R rendy-vm-clipboard-git` removes it cleanly.
+
+### B. Build the package from source
+
+```bash
+sudo pacman -S --needed git base-devel
+git clone https://github.com/rendychen0331/rendy-archlinux-vm-clipboard-tool.git
+cd rendy-archlinux-vm-clipboard-tool/packaging
+makepkg -si        # builds the Rust helper, resolves deps, setcap, installs
+```
+
+### C. Manual (no packaging, for development)
 
 ```bash
 sudo pacman -S --needed python-xlib gcc rust
 # put the whole tool/ directory at ~/clipsync-tool/
 cd ~/clipsync-tool
 bash build.sh         # builds backdoor_helper and setcap cap_sys_rawio+ep
-python main.py        # first run creates config.json
+python main.py        # first run creates config.json next to main.py
 ```
 
+### After any method — enable autostart
+
+```bash
+systemctl --user enable --now clipsync-tool.service
+```
+
+(Method C only: `cp deploy/clipsync-tool.service ~/.config/systemd/user/ &&
+systemctl --user daemon-reload` first — A/B install the unit for you.)
+
 `config.json` fields: `poll_ms` (poll interval, default 400), `max_text_bytes`,
-`log_level`, `helper_bin` (default `backdoor_helper`). Usually no need to change.
+`log_level`, `helper_bin`. Usually no need to change. Packaged installs (A/B)
+keep config + logs under `~/.config/clipsync-tool` and
+`~/.local/state/clipsync-tool`; the manual install (C) keeps them next to
+`main.py`.
 
 vmtoolsd may stay running — verified to coexist with this tool (its clipboard is
 inert under Wayland, so it does not actually consume the backdoor channel;
 shared folders / time sync keep working).
 
-## Autostart (systemd user unit)
-
-```bash
-mkdir -p ~/.config/systemd/user
-cp ~/clipsync-tool/deploy/clipsync-tool.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now clipsync-tool.service
-```
-
-Note: the capability is lost whenever the binary is rebuilt, so re-run
-`bash build.sh` after any Rust change (it re-applies setcap).
+Note: the `CAP_SYS_RAWIO` capability is lost whenever the helper binary is
+rebuilt. Packages re-apply it on every install/upgrade; for method C, re-run
+`bash build.sh` after any Rust change.
 
 ## Verify
 

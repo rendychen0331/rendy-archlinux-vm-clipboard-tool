@@ -28,32 +28,57 @@ Arch guest (GNOME Wayland)                    Windows host
 
 ## 安裝
 
-VM（Arch guest）內：
+全部在 VM（Arch guest）內。三選一。僅 `x86_64`（backdoor 組語限定）。
+
+### A. 從 Releases 裝預編套件（最簡單）
+
+到 [最新 Release](../../releases) 下載 `.pkg.tar.zst`，然後：
+
+```bash
+sudo pacman -U rendy-vm-clipboard-git-*.pkg.tar.zst
+```
+
+pacman 會裝好 helper（已設 `CAP_SYS_RAWIO`）、systemd user unit，並拉齊依賴。
+移除：`pacman -R rendy-vm-clipboard-git`，乾淨。
+
+### B. 從原始碼建套件
+
+```bash
+sudo pacman -S --needed git base-devel
+git clone https://github.com/rendychen0331/rendy-archlinux-vm-clipboard-tool.git
+cd rendy-archlinux-vm-clipboard-tool/packaging
+makepkg -si        # 編 Rust helper、解依賴、setcap、安裝
+```
+
+### C. 手動（不打包，開發用）
 
 ```bash
 sudo pacman -S --needed python-xlib gcc rust
 # 把整個 tool/ 放到 ~/clipsync-tool/
 cd ~/clipsync-tool
 bash build.sh         # 編譯 backdoor_helper 並 setcap cap_sys_rawio+ep
-python main.py        # 首次執行產生 config.json
+python main.py        # 首次執行在 main.py 旁產生 config.json
 ```
 
+### 任一方式裝完 —— 啟用常駐
+
+```bash
+systemctl --user enable --now clipsync-tool.service
+```
+
+（只有方式 C 要先 `cp deploy/clipsync-tool.service ~/.config/systemd/user/ &&
+systemctl --user daemon-reload`；A/B 已幫你裝好 unit。）
+
 `config.json` 欄位：`poll_ms`(輪詢間隔，預設 400)、`max_text_bytes`、
-`log_level`、`helper_bin`(預設 `backdoor_helper`)。通常不用改。
+`log_level`、`helper_bin`。通常不用改。套件安裝（A/B）的 config + logs 放在
+`~/.config/clipsync-tool` 與 `~/.local/state/clipsync-tool`；手動（C）放在
+`main.py` 旁邊。
 
 vmtoolsd 可以繼續開著（實測與本工具並存不衝突 —— vmtoolsd 的剪貼簿在 Wayland
 下本來就不作用，不會真的消費 backdoor 通道；共享資料夾 / time sync 照常）。
 
-## 常駐（systemd user unit）
-
-```bash
-mkdir -p ~/.config/systemd/user
-cp ~/clipsync-tool/deploy/clipsync-tool.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now clipsync-tool.service
-```
-
-注意：`build.sh` 重編後 capability 會消失，須重跑（會自動 setcap）。
+注意：helper 重編後 `CAP_SYS_RAWIO` 會消失。套件在每次安裝/升級會自動重設；
+方式 C 則要在改動 Rust 後重跑 `bash build.sh`。
 
 ## 驗證
 
