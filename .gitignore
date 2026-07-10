@@ -1,0 +1,15 @@
+# logs (runtime, per-machine)
+**/logs/
+
+# generated config (contains the shared token; users create their own)
+host/config.json
+guest/config.json
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# rust probe build artifacts
+tmp_tests/backdoor_probe
+tmp_tests/*.exe
