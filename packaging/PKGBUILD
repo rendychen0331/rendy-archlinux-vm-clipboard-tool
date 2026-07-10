@@ -12,6 +12,7 @@ license=('MIT')
 depends=('python' 'python-xlib' 'libcap')
 makedepends=('rust' 'gcc' 'git')
 conflicts=("${_name}-git")
+options=('!debug')  # no separate -debug symbols package
 install="${_name}.install"
 source=("${_name}-${pkgver}::git+${url}.git#tag=v${pkgver}")
 sha256sums=('SKIP')
