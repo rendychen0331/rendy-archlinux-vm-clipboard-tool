@@ -45,22 +45,28 @@ unsafe fn iopl(level: i64) -> i64 {
     ret
 }
 
-/// One backdoor call. rbx is reserved by LLVM, so swap it in and out
-/// around the `in` instruction rather than naming it directly.
+/// One backdoor call. The VMware backdoor convention touches all of
+/// eax/ebx/ecx/edx/esi/edi/ebp; the hypervisor may write esi/edi/ebp on
+/// return, so they must be declared clobbered or the caller's loop state
+/// (kept in those regs) gets corrupted -> SIGSEGV. rbx and rbp are
+/// LLVM-reserved, so save/restore them by hand around the `in`.
 unsafe fn bdoor(cmd: u32, param: u32) -> (u32, u32, u32, u32) {
     let mut eax: u32 = MAGIC;
     let mut ebx: u32 = param;
     let mut ecx: u32 = cmd;
     let mut edx: u32 = PORT;
     asm!(
+        "push rbp",
         "xchg {tmp:e}, ebx",
         "in eax, dx",
         "xchg {tmp:e}, ebx",
+        "pop rbp",
         tmp = inout(reg) ebx,
         inout("eax") eax,
         inout("ecx") ecx,
         inout("edx") edx,
-        options(nostack)
+        out("esi") _,
+        out("edi") _,
     );
     (eax, ebx, ecx, edx)
 }
