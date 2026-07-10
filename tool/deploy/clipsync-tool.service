@@ -1,0 +1,27 @@
+# systemd USER unit for clipsync-tool (v2, backdoor transport).
+# Runs as a normal user: the helper carries CAP_SYS_RAWIO (set by build.sh),
+# so no root is needed and X11 session access is natural.
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp clipsync-tool.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now clipsync-tool.service
+#
+# vmtoolsd polls the same backdoor channel -- stop it or the two contend:
+#   systemctl --user stop vmtoolsd   (and/or the system vmtoolsd)
+
+[Unit]
+Description=ClipSync backdoor clipboard daemon
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/clipsync-tool
+ExecStart=/usr/bin/python %h/clipsync-tool/main.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

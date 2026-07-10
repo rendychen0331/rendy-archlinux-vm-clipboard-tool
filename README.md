@@ -1,9 +1,62 @@
 # clipsync — VMware Arch Linux (Wayland) ↔ Windows 剪貼簿同步
 
 open-vm-tools 的剪貼簿在 GNOME Wayland（Mutter 無 data-control protocol）下不可用。
-clipsync 自建同步通道：guest 端走 XWayland 的 X11 selection（Mutter 會自動橋接
-X11 ↔ Wayland 剪貼簿），host 端走 Win32 clipboard API，兩端以 TCP 相連，
-全事件驅動、零輪詢。
+本專案自建同步通道。guest 端都走 XWayland 的 X11 CLIPBOARD selection（Mutter
+自動橋接 X11 ↔ Wayland，Wayland 原生 app 也涵蓋）；差別在跟 Windows 之間怎麼傳：
+
+| | v1 `host/` + `guest/` | v2 `tool/`（推薦） |
+|---|---|---|
+| 通道 | 自建 TCP（NAT 內網） | VMware backdoor（免網路） |
+| Windows 端 | 要跑 host daemon | **不用**，VMware 自己處理 host 剪貼簿 |
+| 事件模型 | 兩端事件推送 | guest 端輪詢 backdoor（~400ms） |
+| 權限 | 一般 user | helper 需 `CAP_SYS_RAWIO`（`setcap`，非 root） |
+| 語言 | 純 Python | Python + Rust helper |
+
+v2 是專案主目標（repo 名 `-tool`）。v1 保留作為 fallback / 參考。
+兩者都只做純文字（UTF-8）；圖片、檔案、富文字不支援。
+
+---
+
+## v2 安裝 — `tool/`（backdoor，免 host daemon）
+
+VM（Arch guest）內：
+
+```bash
+sudo pacman -S --needed python-xlib gcc rust
+# 把 tool/ 放到 ~/clipsync-tool/
+cd ~/clipsync-tool
+./build.sh            # 編譯 backdoor_helper 並 setcap cap_sys_rawio+ep
+python main.py        # 首次執行產生 config.json
+```
+
+`config.json` 欄位：`poll_ms`(輪詢間隔)、`max_text_bytes`、`log_level`、
+`helper_bin`(預設 `backdoor_helper`)。通常不用改。
+
+**停掉 vmtoolsd 的剪貼簿**（它輪詢同一條 backdoor 通道，會跟 v2 搶）：
+
+```bash
+systemctl --user stop vmtoolsd      # 視發行版
+sudo systemctl stop vmtoolsd
+```
+
+常駐（systemd user unit）：
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp ~/clipsync-tool/deploy/clipsync-tool.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now clipsync-tool.service
+```
+
+注意：`build.sh` 重編後 capability 會消失，須重跑（會自動 setcap）。
+
+---
+
+## v1 安裝 — `host/` + `guest/`（TCP fallback）
+
+v1 走的是網路，跟 open-vm-tools 完全不同通道。
+guest 端走 XWayland 的 X11 selection，host 端走 Win32 clipboard API，
+兩端以 TCP 相連，全事件驅動、零輪詢。
 
 ```
 Arch guest (GNOME Wayland)                Windows host
