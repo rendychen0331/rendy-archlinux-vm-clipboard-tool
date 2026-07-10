@@ -79,9 +79,8 @@ Log 在 `logs/`，讀取順序：
 
 - `src/clipboard_x11.py`、`config_loader.py`、`logger_setup.py` 是 Python 端；
   `rustsrc/`（`backdoor.s` + `main.rs`）是 Rust helper。
-- backdoor 呼叫用獨立 `.s`（proven 7-register 慣例，出處
-  lucab/vmw_backdoor）——`tmp_tests/backdoor.s` 是驗證用 probe，
-  `tests/test_copies_in_sync.py` 強制它跟 `tool/rustsrc/backdoor.s` 一致。
-- `tmp_tests/`：backdoor probe（`backdoor_probe.rs` + `run_probe.sh`），
-  用來確認通道活著、資料在哪個暫存器（EAX）。
-- 測試：專案根目錄 `python -m pytest tests/`。
+- backdoor 呼叫用獨立 `.s`（proven 7-register 慣例，出處 lucab/vmw_backdoor）。
+- `tmp_tests/`：backdoor probe（`backdoor_probe.rs` + `run_probe.sh`）。未來
+  VMware 升級後若 v2 壞了，`bash tmp_tests/run_probe.sh` 能一秒分辨是 backdoor
+  通道本身變了、還是 daemon 邏輯問題。probe 直接組譯 `tool/rustsrc/backdoor.s`
+  （單一來源，不另存副本）。

@@ -9,7 +9,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-cc -c backdoor.s -o backdoor.o
+# Single source of truth: the same backdoor.s the shipping helper uses.
+ASM=../tool/rustsrc/backdoor.s
+cc -c "$ASM" -o backdoor.o
 rustc -O -C link-arg="$PWD/backdoor.o" backdoor_probe.rs -o backdoor_probe
 echo "[build OK] copy some text on the WINDOWS HOST now, then this runs:"
 sudo ./backdoor_probe "$@"

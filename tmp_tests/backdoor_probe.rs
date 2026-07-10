@@ -7,9 +7,8 @@
 //! prints every result register so the data register is found empirically,
 //! not guessed.
 //!
-//! Build (zero crates; needs gcc + rustc):
-//!     cc -c backdoor.s -o backdoor.o
-//!     rustc -O -C link-arg=backdoor.o backdoor_probe.rs -o backdoor_probe
+//! Build + run via run_probe.sh (it assembles ../tool/rustsrc/backdoor.s,
+//! the same proven asm the shipping helper uses -- single source of truth).
 //! Run (needs root for iopl):
 //!     sudo ./backdoor_probe            # read host clipboard
 //!     sudo ./backdoor_probe --write    # also write, then Ctrl+V on Windows
