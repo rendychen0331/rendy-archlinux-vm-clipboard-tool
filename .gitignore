@@ -12,4 +12,5 @@ __pycache__/
 
 # rust probe build artifacts
 tmp_tests/backdoor_probe
+tmp_tests/*.o
 tmp_tests/*.exe
