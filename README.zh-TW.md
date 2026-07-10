@@ -32,14 +32,17 @@ Arch guest (GNOME Wayland)                    Windows host
 
 ### A. 從 Releases 裝預編套件（最簡單）
 
-到 [最新 Release](../../releases) 下載 `.pkg.tar.zst`，然後：
+到 [最新 Release](../../releases) 下載 `.pkg.tar.zst`，兩種裝法擇一：
 
-```bash
-sudo pacman -U rendy-vm-clipboard-git-*.pkg.tar.zst
-```
+- **雙擊** —— 只有裝了 GUI 套件管理器（pamac / octopi）才會開安裝對話框。
+  純 Arch 沒這種 GUI，雙擊只會用壓縮檔工具打開「看內容」（不會安裝）。
+- **指令**（一定可用）：
+  ```bash
+  sudo pacman -U rendy-vm-clipboard-*.pkg.tar.zst
+  ```
 
-pacman 會裝好 helper（已設 `CAP_SYS_RAWIO`）、systemd user unit，並拉齊依賴。
-移除：`pacman -R rendy-vm-clipboard-git`，乾淨。
+兩種方式 pacman 都會裝好 helper（已設 `CAP_SYS_RAWIO`）、systemd user unit，
+並拉齊依賴。移除：`pacman -R rendy-vm-clipboard`，乾淨。
 
 ### B. 從原始碼建套件
 

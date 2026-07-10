@@ -34,14 +34,20 @@ All on the VM (Arch guest). Pick one method. `x86_64` only (the backdoor asm).
 
 ### A. Prebuilt package from Releases (easiest)
 
-Grab the `.pkg.tar.zst` from the [latest Release](../../releases) and:
+Download the `.pkg.tar.zst` from the [latest Release](../../releases), then
+install it either way:
 
-```bash
-sudo pacman -U rendy-vm-clipboard-git-*.pkg.tar.zst
-```
+- **Double-click** — only if you have a GUI package manager (pamac / octopi);
+  it opens an install dialog. Vanilla Arch has no such GUI, so a double-click
+  there just opens the file in an archive viewer (view, not install).
+- **Command line** (always works):
+  ```bash
+  sudo pacman -U rendy-vm-clipboard-*.pkg.tar.zst
+  ```
 
-pacman installs the helper (with `CAP_SYS_RAWIO` set), the systemd user unit,
-and pulls the runtime deps. `pacman -R rendy-vm-clipboard-git` removes it cleanly.
+Either way pacman installs the helper (with `CAP_SYS_RAWIO` set), the systemd
+user unit, and pulls the runtime deps. `pacman -R rendy-vm-clipboard` removes it
+cleanly.
 
 ### B. Build the package from source
 
