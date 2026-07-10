@@ -134,10 +134,14 @@ class X11Clipboard:
     # ---- watching / fetching foreign selections ----
 
     def _handle_event(self, ev):
+        logging.debug("x event: %s", type(ev).__name__)
         if isinstance(ev, xfixes.SetSelectionOwnerNotify):
+            owner_id = getattr(ev.owner, "id", ev.owner)
+            logging.debug("xfixes owner-notify: selection=%s owner=0x%x "
+                          "(self=0x%x)", ev.selection, owner_id or 0,
+                          self._win.id)
             if ev.selection != self.A_CLIPBOARD:
                 return
-            owner_id = getattr(ev.owner, "id", ev.owner)
             if not owner_id or owner_id == self._win.id:
                 return  # cleared, or our own set_text
             self._start_fetch()
@@ -153,6 +157,7 @@ class X11Clipboard:
 
     def _start_fetch(self, target=None):
         target = target or self.A_UTF8
+        logging.debug("start fetch: convert_selection target=%s", target)
         self._win.convert_selection(
             self.A_CLIPBOARD, target, self.A_PROP, X.CurrentTime)
         self._disp.flush()
@@ -204,6 +209,7 @@ class X11Clipboard:
 
     def _finish_fetch(self, data: bytes):
         self._fetch = None
+        logging.debug("fetch finished: %d bytes", len(data))
         if not data:
             return
         if len(data) > self._max:
