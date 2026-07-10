@@ -1,0 +1,48 @@
+# Maintainer: rendychen0331 <rendychen0331@gmail.com>
+# VCS package: builds the current repo HEAD. No git tag needed. Rename pkgname
+# freely before submitting to AUR (once AUR registration reopens).
+_name=rendy-vm-clipboard
+pkgname=${_name}-git
+pkgver=r1
+pkgrel=1
+pkgdesc="VMware Arch (Wayland) <-> Windows clipboard sync via the VMware backdoor"
+arch=('x86_64')  # backdoor asm is x86_64-only
+url="https://github.com/rendychen0331/rendy-archlinux-vm-clipboard-tool"
+license=('MIT')
+depends=('python' 'python-xlib' 'libcap')
+makedepends=('rust' 'gcc' 'git')
+provides=("${_name}")
+conflicts=("${_name}")
+install="${_name}.install"
+source=("${_name}::git+${url}.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "${srcdir}/${_name}"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  cd "${srcdir}/${_name}/tool"
+  cc -c rustsrc/backdoor.s -o rustsrc/backdoor.o
+  rustc -O -C link-arg="${PWD}/rustsrc/backdoor.o" rustsrc/main.rs \
+    -o backdoor_helper
+}
+
+package() {
+  cd "${srcdir}/${_name}/tool"
+  local dest="/usr/lib/${_name}"
+
+  install -Dm755 backdoor_helper "${pkgdir}${dest}/backdoor_helper"
+  install -Dm644 main.py "${pkgdir}${dest}/main.py"
+  for f in src/*.py; do
+    install -Dm644 "${f}" "${pkgdir}${dest}/${f}"
+  done
+
+  # systemd user unit with absolute install paths (repo copy uses %h/clipsync-tool)
+  install -dm755 "${pkgdir}/usr/lib/systemd/user"
+  sed "s|%h/clipsync-tool|${dest}|g" deploy/clipsync-tool.service \
+    > "${pkgdir}/usr/lib/systemd/user/clipsync-tool.service"
+
+  install -Dm644 ../README.md "${pkgdir}/usr/share/doc/${_name}/README.md"
+}

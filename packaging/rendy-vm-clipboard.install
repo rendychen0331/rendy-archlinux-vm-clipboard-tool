@@ -1,0 +1,24 @@
+_helper=/usr/lib/rendy-vm-clipboard/backdoor_helper
+
+# The backdoor needs iopl(3) -> CAP_SYS_RAWIO. Grant it as a file capability so
+# the daemon runs as a normal user (no root). A rebuild/upgrade replaces the
+# binary and drops the cap, so re-apply on every install and upgrade.
+_setcap() {
+  setcap cap_sys_rawio+ep "${_helper}" || \
+    echo ">> setcap failed. Run manually: sudo setcap cap_sys_rawio+ep ${_helper}"
+}
+
+post_install() {
+  _setcap
+  cat <<'EOF'
+>> clipsync-tool installed. Enable it per-user (in your graphical session):
+     systemctl --user enable --now clipsync-tool.service
+   config + logs go under ~/.config/clipsync-tool and ~/.local/state/clipsync-tool.
+   vmtoolsd may stay running (it coexists).
+EOF
+}
+
+post_upgrade() {
+  _setcap
+  echo ">> restart to pick up the new version:  systemctl --user restart clipsync-tool.service"
+}
